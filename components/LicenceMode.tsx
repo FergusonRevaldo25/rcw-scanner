@@ -28,7 +28,7 @@ export default function LicenceMode() {
         number, VIN, expiry) is a future upgrade.
       </p>
 
-      <CameraScanner onScan={handleScan} />
+      <CameraScanner onScan={handleScan} formats={["PDF_417"]} />
 
       <div className="space-y-2">
         <h2 className="text-white font-semibold">Scanned ({scans.length})</h2>

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 interface CameraScannerProps {
   onScan: (text: string) => void;
+  formats?: string[]; // pass format names to narrow detection
 }
 
-export default function CameraScanner({ onScan }: CameraScannerProps) {
+export default function CameraScanner({ onScan, formats }: CameraScannerProps) {
   const [active, setActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,25 +17,35 @@ export default function CameraScanner({ onScan }: CameraScannerProps) {
     let html5QrCode: any;
     let cancelled = false;
 
-    import("html5-qrcode").then(({ Html5Qrcode }) => {
-      if (cancelled) return;
-      html5QrCode = new Html5Qrcode("scanner-region");
+    import("html5-qrcode").then(
+      ({ Html5Qrcode, Html5QrcodeSupportedFormats }) => {
+        if (cancelled) return;
+        html5QrCode = new Html5Qrcode("scanner-region");
 
-      html5QrCode
-        .start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 260, height: 160 } },
-          (decodedText: string) => {
-            onScan(decodedText);
-          },
-          () => {
-            // per-frame failure — fires constantly while scanning, ignore
-          },
-        )
-        .catch(() => {
-          setError("Could not access camera. Check browser permissions.");
-        });
-    });
+        const formatsToSupport = formats
+          ? formats
+              .map((f) => (Html5QrcodeSupportedFormats as any)[f])
+              .filter((f) => f !== undefined)
+          : undefined;
+
+        html5QrCode
+          .start(
+            { facingMode: "environment" },
+            {
+              fps: 10,
+              qrbox: { width: 280, height: 180 },
+              ...(formatsToSupport ? { formatsToSupport } : {}),
+            },
+            (decodedText: string) => {
+              onScan(decodedText);
+            },
+            () => {},
+          )
+          .catch(() => {
+            setError("Could not access camera. Check browser permissions.");
+          });
+      },
+    );
 
     return () => {
       cancelled = true;
@@ -42,7 +53,7 @@ export default function CameraScanner({ onScan }: CameraScannerProps) {
         html5QrCode.stop().catch(() => {});
       }
     };
-  }, [active, onScan]);
+  }, [active, onScan, formats]);
 
   return (
     <div className="space-y-3">
