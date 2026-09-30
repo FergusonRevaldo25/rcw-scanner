@@ -15,7 +15,7 @@ function identifyContent(
   text: string,
   format: string,
 ): { label: string; detail: string } {
-  // Licence disc: SA format is % delimited with many fields
+  // Licence disc: SA format is % delimited with many fields, always PDF_417
   if (format === "PDF_417" && text.split("%").length > 8) {
     const parts = text.split("%").filter(Boolean);
     const make = parts[8] || "";
@@ -26,37 +26,53 @@ function identifyContent(
     };
   }
 
-  // Product SKU: check against known products
-  const product = getProductByBarcode(text);
-  if (product) {
-    return { label: "Product", detail: product.name };
+  // Retail/product barcode formats — check against known products first
+  const productFormats = [
+    "EAN_13",
+    "EAN_8",
+    "UPC_A",
+    "UPC_E",
+    "CODE_128",
+    "CODE_39",
+    "ITF",
+  ];
+  if (productFormats.includes(format)) {
+    const product = getProductByBarcode(text);
+    if (product) {
+      return { label: "Product", detail: product.name };
+    }
+    return { label: `Barcode (${format})`, detail: "Not in product list" };
   }
 
-  // URL
-  if (/^https?:\/\//i.test(text)) {
-    return { label: "Website Link", detail: text };
+  // QR / Data Matrix / Aztec / PDF417 — content-based routing, since these can hold anything
+  const contentCarrierFormats = ["QR_CODE", "DATA_MATRIX", "AZTEC", "PDF_417"];
+  if (contentCarrierFormats.includes(format)) {
+    if (/^https?:\/\//i.test(text)) {
+      return { label: "Website Link", detail: text };
+    }
+    if (/^tel:/i.test(text) || /^\+?\d{7,15}$/.test(text.trim())) {
+      return { label: "Phone Number", detail: text.replace(/^tel:/i, "") };
+    }
+    if (/^mailto:/i.test(text) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
+      return { label: "Email Address", detail: text.replace(/^mailto:/i, "") };
+    }
+    if (/^WIFI:/i.test(text)) {
+      return {
+        label: "Wi-Fi Network",
+        detail: "Tap to view connection details",
+      };
+    }
+    if (/^BEGIN:VCARD/i.test(text)) {
+      return { label: "Contact Card", detail: "vCard data" };
+    }
+    return {
+      label: `${format.replace("_", " ")} Content`,
+      detail: text.length > 60 ? text.slice(0, 60) + "…" : text,
+    };
   }
 
-  // Phone number
-  if (/^tel:/i.test(text) || /^\+?\d{7,15}$/.test(text.trim())) {
-    return { label: "Phone Number", detail: text.replace(/^tel:/i, "") };
-  }
-
-  // Email
-  if (/^mailto:/i.test(text) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
-    return { label: "Email Address", detail: text.replace(/^mailto:/i, "") };
-  }
-
-  // Generic barcode formats with no product match
-  if (
-    ["EAN_13", "EAN_8", "UPC_A", "UPC_E", "CODE_128", "CODE_39"].includes(
-      format,
-    )
-  ) {
-    return { label: "Unknown Product Barcode", detail: "Not in product list" };
-  }
-
-  return { label: "Text / QR Content", detail: text };
+  // Fallback for any format we haven't explicitly handled
+  return { label: `${format.replace("_", " ")}`, detail: text };
 }
 
 export default function UniversalScanner() {
