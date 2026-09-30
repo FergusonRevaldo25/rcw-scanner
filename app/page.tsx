@@ -20,6 +20,12 @@ export default function Home() {
         >
           Licence Disc Scanner
         </Link>
+        <Link
+          href="/scan"
+          className="border border-gray-700 text-white font-bold px-6 py-3 rounded-full"
+        >
+          Universal Scanner
+        </Link>
       </div>
     </main>
   );
