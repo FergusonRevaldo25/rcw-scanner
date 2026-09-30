@@ -1,11 +1,62 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getProductByBarcode } from "@/lib/products";
 
 interface UniversalScan {
   text: string;
   format: string;
+  label: string;
+  detail: string;
   time: string;
+}
+
+function identifyContent(
+  text: string,
+  format: string,
+): { label: string; detail: string } {
+  // Licence disc: SA format is % delimited with many fields
+  if (format === "PDF_417" && text.split("%").length > 8) {
+    const parts = text.split("%").filter(Boolean);
+    const make = parts[8] || "";
+    const model = parts[9] || "";
+    return {
+      label: "Vehicle Licence Disc",
+      detail: make || model ? `${make} ${model}`.trim() : "Details unavailable",
+    };
+  }
+
+  // Product SKU: check against known products
+  const product = getProductByBarcode(text);
+  if (product) {
+    return { label: "Product", detail: product.name };
+  }
+
+  // URL
+  if (/^https?:\/\//i.test(text)) {
+    return { label: "Website Link", detail: text };
+  }
+
+  // Phone number
+  if (/^tel:/i.test(text) || /^\+?\d{7,15}$/.test(text.trim())) {
+    return { label: "Phone Number", detail: text.replace(/^tel:/i, "") };
+  }
+
+  // Email
+  if (/^mailto:/i.test(text) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
+    return { label: "Email Address", detail: text.replace(/^mailto:/i, "") };
+  }
+
+  // Generic barcode formats with no product match
+  if (
+    ["EAN_13", "EAN_8", "UPC_A", "UPC_E", "CODE_128", "CODE_39"].includes(
+      format,
+    )
+  ) {
+    return { label: "Unknown Product Barcode", detail: "Not in product list" };
+  }
+
+  return { label: "Text / QR Content", detail: text };
 }
 
 export default function UniversalScanner() {
@@ -38,8 +89,6 @@ export default function UniversalScanner() {
 
         if (cancelled) return;
 
-        // BrowserMultiFormatReader auto-detects across QR, EAN, UPC,
-        // Code128, Code39, PDF417, DataMatrix, and more — no format lock.
         const { BrowserMultiFormatReader } = await import("@zxing/browser");
         if (cancelled) return;
 
@@ -51,10 +100,17 @@ export default function UniversalScanner() {
             const format = result.getBarcodeFormat
               ? String(result.getBarcodeFormat())
               : "Unknown";
+            const { label, detail } = identifyContent(text, format);
             setScans((prev) => {
               if (prev.some((s) => s.text === text)) return prev;
               return [
-                { text, format, time: new Date().toLocaleTimeString() },
+                {
+                  text,
+                  format,
+                  label,
+                  detail,
+                  time: new Date().toLocaleTimeString(),
+                },
                 ...prev,
               ];
             });
@@ -109,7 +165,7 @@ export default function UniversalScanner() {
         Universal Scanner
       </h1>
       <p className="text-gray-400 text-sm text-center">
-        Scans any barcode or QR code type automatically.
+        Scans any barcode or QR code and tells you what it is.
       </p>
 
       {!active ? (
@@ -175,7 +231,14 @@ export default function UniversalScanner() {
               <p className="text-gray-500 text-xs">
                 {s.time} · <span className="rcw-gradient-text">{s.format}</span>
               </p>
-              <p className="text-white break-all">{s.text}</p>
+              <p className="text-white font-semibold">{s.label}</p>
+              <p className="text-gray-300 text-xs break-all">{s.detail}</p>
+              <details>
+                <summary className="text-gray-500 text-xs cursor-pointer">
+                  Raw data
+                </summary>
+                <p className="text-gray-400 text-xs break-all mt-1">{s.text}</p>
+              </details>
               <button
                 onClick={() => copyToClipboard(s.text)}
                 type="button"
