@@ -47,23 +47,26 @@ function identifyContent(
   // QR / Data Matrix / Aztec / PDF417 — content-based routing, since these can hold anything
   const contentCarrierFormats = ["QR_CODE", "DATA_MATRIX", "AZTEC", "PDF_417"];
   if (contentCarrierFormats.includes(format)) {
-    if (/^https?:\/\//i.test(text)) {
-      return { label: "Website Link", detail: text };
-    }
-    if (/^tel:/i.test(text) || /^\+?\d{7,15}$/.test(text.trim())) {
-      return { label: "Phone Number", detail: text.replace(/^tel:/i, "") };
-    }
-    if (/^mailto:/i.test(text) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
-      return { label: "Email Address", detail: text.replace(/^mailto:/i, "") };
+    if (/^BEGIN:VCARD/i.test(text)) {
+      return {
+        label: "Contact Card",
+        detail: "vCard — tap Raw data to view full details",
+      };
     }
     if (/^WIFI:/i.test(text)) {
       return {
         label: "Wi-Fi Network",
-        detail: "Tap to view connection details",
+        detail: "Tap Raw data to view connection details",
       };
     }
-    if (/^BEGIN:VCARD/i.test(text)) {
-      return { label: "Contact Card", detail: "vCard data" };
+    if (/^https?:\/\//i.test(text)) {
+      return { label: "Website Link", detail: text };
+    }
+    if (/^mailto:/i.test(text) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
+      return { label: "Email Address", detail: text.replace(/^mailto:/i, "") };
+    }
+    if (/^tel:/i.test(text)) {
+      return { label: "Phone Number", detail: text.replace(/^tel:/i, "") };
     }
     return {
       label: `${format.replace("_", " ")} Content`,
@@ -72,7 +75,7 @@ function identifyContent(
   }
 
   // Fallback for any format we haven't explicitly handled
-  return { label: `${format.replace("_", " ")}`, detail: text };
+  return { label: format.replace("_", " "), detail: text };
 }
 
 export default function UniversalScanner() {
@@ -105,17 +108,21 @@ export default function UniversalScanner() {
 
         if (cancelled) return;
 
-        const { BrowserMultiFormatReader } = await import("@zxing/browser");
+        const zxingBrowser = await import("@zxing/browser");
+        const zxingLibrary = await import("@zxing/library");
         if (cancelled) return;
+
+        const { BrowserMultiFormatReader } = zxingBrowser;
+        const { BarcodeFormat } = zxingLibrary;
 
         const reader = new BrowserMultiFormatReader();
 
         const handleResult = (result: any) => {
           if (result) {
             const text = result.getText();
-            const format = result.getBarcodeFormat
-              ? String(result.getBarcodeFormat())
-              : "Unknown";
+            const formatEnum = result.getBarcodeFormat();
+            // Resolve the numeric enum back to its readable name, e.g. "QR_CODE"
+            const format = (BarcodeFormat as any)[formatEnum] ?? "UNKNOWN";
             const { label, detail } = identifyContent(text, format);
             setScans((prev) => {
               if (prev.some((s) => s.text === text)) return prev;
