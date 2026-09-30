@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 
 interface ParsedDisc {
   regAuthNo?: string;
+  discNo?: string;
   licenceNo?: string;
   vehicleReg?: string;
-  vinLicenceNo?: string;
   bodyType?: string;
   make?: string;
   model?: string;
@@ -23,28 +23,33 @@ interface LicenceScan {
 }
 
 function parseDiscData(raw: string): ParsedDisc {
-  // SA licence disc PDF417 fields are % delimited, roughly in this order.
-  // Format can vary slightly, so this is best-effort labeling, not guaranteed field-perfect.
+  // SA licence disc PDF417 fields are % delimited.
+  // Indices confirmed against a real scanned sample — may still vary
+  // slightly across disc versions, so treat as best-effort.
   const parts = raw.split("%").filter(Boolean);
   return {
     regAuthNo: parts[0],
-    licenceNo: parts[2],
-    vehicleReg: parts[4],
-    vinLicenceNo: parts[5],
-    bodyType: parts[6],
-    make: parts[7],
-    model: parts[8],
-    vin: parts[9],
-    engineNo: parts[10],
-    expiryDate: parts[11],
+    discNo: parts[4],
+    licenceNo: parts[5],
+    vehicleReg: parts[6],
+    bodyType: parts[7],
+    make: parts[8],
+    model: parts[9],
+    colour: parts[10],
+    vin: parts[11],
+    engineNo: parts[12],
+    expiryDate: parts[13],
   };
 }
 
 export default function LicenceMode() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [scans, setScans] = useState<LicenceScan[]>([]);
   const [active, setActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [zoomCapable, setZoomCapable] = useState(false);
 
   useEffect(() => {
     if (!active) return;
@@ -55,20 +60,25 @@ export default function LicenceMode() {
 
     (async () => {
       try {
-        // Try to get a stream with reduced exposure first, to fight sun glare
-        // on glossy licence discs. Not all browsers/devices support this —
-        // it silently falls back to normal auto-exposure if unsupported.
         try {
           manualStream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: "environment",
               advanced: [
+                { focusMode: "continuous" } as any,
                 { exposureMode: "manual", exposureCompensation: -1 } as any,
               ],
             },
           });
+          streamRef.current = manualStream;
+
+          const track = manualStream.getVideoTracks()[0];
+          const capabilities = track.getCapabilities?.() as any;
+          if (capabilities?.zoom) {
+            setZoomCapable(true);
+          }
         } catch {
-          manualStream = null; // fine — will fall back to default device selection below
+          manualStream = null;
         }
 
         if (cancelled) return;
@@ -78,49 +88,36 @@ export default function LicenceMode() {
 
         const reader = new BrowserPDF417Reader();
 
+        const handleResult = (result: any) => {
+          if (result) {
+            const text = result.getText();
+            setScans((prev) => {
+              if (prev.some((s) => s.raw === text)) return prev;
+              return [
+                {
+                  raw: text,
+                  parsed: parseDiscData(text),
+                  time: new Date().toLocaleTimeString(),
+                },
+                ...prev,
+              ];
+            });
+          }
+        };
+
         if (manualStream && videoRef.current) {
           videoRef.current.srcObject = manualStream;
           await videoRef.current.play();
           controls = await reader.decodeFromStream(
             manualStream,
             videoRef.current,
-            (result) => {
-              if (result) {
-                const text = result.getText();
-                setScans((prev) => {
-                  if (prev.some((s) => s.raw === text)) return prev;
-                  return [
-                    {
-                      raw: text,
-                      parsed: parseDiscData(text),
-                      time: new Date().toLocaleTimeString(),
-                    },
-                    ...prev,
-                  ];
-                });
-              }
-            },
+            handleResult,
           );
         } else {
           controls = await reader.decodeFromVideoDevice(
             undefined,
             videoRef.current!,
-            (result) => {
-              if (result) {
-                const text = result.getText();
-                setScans((prev) => {
-                  if (prev.some((s) => s.raw === text)) return prev;
-                  return [
-                    {
-                      raw: text,
-                      parsed: parseDiscData(text),
-                      time: new Date().toLocaleTimeString(),
-                    },
-                    ...prev,
-                  ];
-                });
-              }
-            },
+            handleResult,
           );
         }
       } catch (err) {
@@ -134,6 +131,7 @@ export default function LicenceMode() {
       if (manualStream) {
         manualStream.getTracks().forEach((track) => track.stop());
       }
+      streamRef.current = null;
     };
   }, [active]);
 
@@ -143,6 +141,25 @@ export default function LicenceMode() {
 
   function clearAll() {
     setScans([]);
+  }
+
+  function handleZoomChange(value: number) {
+    setZoom(value);
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (track && "applyConstraints" in track) {
+      track
+        .applyConstraints({ advanced: [{ zoom: value } as any] })
+        .catch(() => {});
+    }
+  }
+
+  function handleTapToFocus() {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (track && "applyConstraints" in track) {
+      track
+        .applyConstraints({ advanced: [{ focusMode: "single-shot" } as any] })
+        .catch(() => {});
+    }
   }
 
   return (
@@ -173,13 +190,37 @@ export default function LicenceMode() {
       )}
 
       {active && (
-        <div className="w-full max-w-xs mx-auto aspect-[4/3] rounded-xl overflow-hidden border border-gray-800 bg-black">
-          <video
-            ref={videoRef}
-            className="w-full h-full object-cover"
-            muted
-            playsInline
-          />
+        <div className="space-y-2">
+          <div
+            className="w-full max-w-xs mx-auto aspect-[4/3] rounded-xl overflow-hidden border border-gray-800 bg-black"
+            onClick={handleTapToFocus}
+          >
+            <video
+              ref={videoRef}
+              className="w-full h-full object-cover"
+              muted
+              playsInline
+            />
+          </div>
+          <p className="text-gray-500 text-xs text-center">
+            Tap the camera preview to refocus
+          </p>
+          {zoomCapable && (
+            <div className="max-w-xs mx-auto">
+              <input
+                type="range"
+                min={1}
+                max={5}
+                step={0.1}
+                value={zoom}
+                onChange={(e) => handleZoomChange(Number(e.target.value))}
+                className="w-full"
+              />
+              <p className="text-gray-500 text-xs text-center">
+                Zoom: {zoom.toFixed(1)}x
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -222,6 +263,8 @@ export default function LicenceMode() {
                 <span className="text-white">{s.parsed.make || "—"}</span>
                 <span className="text-gray-500">Model:</span>
                 <span className="text-white">{s.parsed.model || "—"}</span>
+                <span className="text-gray-500">Colour:</span>
+                <span className="text-white">{s.parsed.colour || "—"}</span>
                 <span className="text-gray-500">VIN:</span>
                 <span className="text-white break-all">
                   {s.parsed.vin || "—"}
