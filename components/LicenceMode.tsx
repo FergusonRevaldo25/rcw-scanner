@@ -50,34 +50,79 @@ export default function LicenceMode() {
     if (!active) return;
 
     let controls: any;
+    let manualStream: MediaStream | null = null;
     let cancelled = false;
 
     (async () => {
       try {
+        // Try to get a stream with reduced exposure first, to fight sun glare
+        // on glossy licence discs. Not all browsers/devices support this —
+        // it silently falls back to normal auto-exposure if unsupported.
+        try {
+          manualStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: "environment",
+              advanced: [
+                { exposureMode: "manual", exposureCompensation: -1 } as any,
+              ],
+            },
+          });
+        } catch {
+          manualStream = null; // fine — will fall back to default device selection below
+        }
+
+        if (cancelled) return;
+
         const { BrowserPDF417Reader } = await import("@zxing/browser");
         if (cancelled) return;
 
         const reader = new BrowserPDF417Reader();
-        controls = await reader.decodeFromVideoDevice(
-          undefined,
-          videoRef.current!,
-          (result) => {
-            if (result) {
-              const text = result.getText();
-              setScans((prev) => {
-                if (prev.some((s) => s.raw === text)) return prev;
-                return [
-                  {
-                    raw: text,
-                    parsed: parseDiscData(text),
-                    time: new Date().toLocaleTimeString(),
-                  },
-                  ...prev,
-                ];
-              });
-            }
-          },
-        );
+
+        if (manualStream && videoRef.current) {
+          videoRef.current.srcObject = manualStream;
+          await videoRef.current.play();
+          controls = await reader.decodeFromStream(
+            manualStream,
+            videoRef.current,
+            (result) => {
+              if (result) {
+                const text = result.getText();
+                setScans((prev) => {
+                  if (prev.some((s) => s.raw === text)) return prev;
+                  return [
+                    {
+                      raw: text,
+                      parsed: parseDiscData(text),
+                      time: new Date().toLocaleTimeString(),
+                    },
+                    ...prev,
+                  ];
+                });
+              }
+            },
+          );
+        } else {
+          controls = await reader.decodeFromVideoDevice(
+            undefined,
+            videoRef.current!,
+            (result) => {
+              if (result) {
+                const text = result.getText();
+                setScans((prev) => {
+                  if (prev.some((s) => s.raw === text)) return prev;
+                  return [
+                    {
+                      raw: text,
+                      parsed: parseDiscData(text),
+                      time: new Date().toLocaleTimeString(),
+                    },
+                    ...prev,
+                  ];
+                });
+              }
+            },
+          );
+        }
       } catch (err) {
         setError("Could not access camera. Check browser permissions.");
       }
@@ -86,6 +131,9 @@ export default function LicenceMode() {
     return () => {
       cancelled = true;
       if (controls) controls.stop();
+      if (manualStream) {
+        manualStream.getTracks().forEach((track) => track.stop());
+      }
     };
   }, [active]);
 
