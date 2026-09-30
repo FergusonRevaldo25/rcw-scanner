@@ -24,3 +24,39 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+:root {
+  --rcw-purple: #7c3aed;
+  --rcw-pink: #ec4899;
+  --rcw-orange: #f97316;
+  --rcw-black: #0a0a0a;
+}
+
+body {
+  background-color: var(--rcw-black);
+  color: white;
+}
+
+.rcw-gradient-text {
+  background: linear-gradient(
+    90deg,
+    var(--rcw-purple),
+    var(--rcw-pink),
+    var(--rcw-orange)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.rcw-gradient-bg {
+  background: linear-gradient(
+    90deg,
+    var(--rcw-purple),
+    var(--rcw-pink),
+    var(--rcw-orange)
+  );
+}
+
+.rcw-glow {
+  box-shadow: 0 0 20px rgba(236, 72, 153, 0.4);
+}
